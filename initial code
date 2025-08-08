@@ -1,0 +1,67 @@
+//@version=6
+indicator(title="Opening Range High/Low (09:30–09:34 NY) — OR Lines to 16:00", shorttitle="OR NY 9:30-9:34", overlay=true)
+
+// === Constants / Inputs (v6) ===
+const string TZ = "America/New_York"   // fixed to NY time
+hiColor = input.color(color.new(color.yellow, 0), "High Line Color")
+loColor = input.color(color.new(color.red, 0),     "Low Line Color")
+lineW   = input.int(2, "Line Width", minval=1, maxval=5)
+
+// Window and session end (NY time)
+startHour = 9
+startMinute = 30
+endMinute = 35              // exclusive -> covers up to 09:34:59
+sessionEndHour = 16
+sessionEndMinute = 0
+
+// === NY timestamps anchored to today's date (from bar date) ===
+nyY = year(time)
+nyM = month(time)
+nyD = dayofmonth(time)
+
+var int tStart   = na
+var int tEndEx   = na
+var int tSessEnd = na
+
+// Recompute anchors each bar (robust across reloads/timeframes)
+tStart   := timestamp(TZ, nyY, nyM, nyD, startHour, startMinute)       // 09:30 NY
+tEndEx   := timestamp(TZ, nyY, nyM, nyD, startHour, endMinute)         // 09:35 NY (exclusive)
+tSessEnd := timestamp(TZ, nyY, nyM, nyD, sessionEndHour, sessionEndMinute) // 16:00 NY
+
+// === Opening Range tracker (no security() calls) ===
+var float orHigh = na
+var float orLow  = na
+var bool  orDone = false
+
+// Make newDay a BOOL (ta.change returns a number)
+newDay = ta.change(dayofmonth(time)) != 0
+
+// Avoid nz() on bool — compute prior-bar test explicitly
+prevBarExists = not na(time[1])
+crossedSessionEnd = (time >= tSessEnd) and (prevBarExists and time[1] < tSessEnd)
+
+// Reset each new day or after session end
+if newDay or crossedSessionEnd
+    orHigh := na
+    orLow  := na
+    orDone := false
+
+// Accumulate during the OR window
+inOR = time >= tStart and time < tEndEx
+if inOR
+    orHigh := na(orHigh) ? high : math.max(orHigh, high)
+    orLow  := na(orLow)  ? low  : math.min(orLow,  low)
+
+// Lock once window closes (for this day)
+if not orDone and time >= tEndEx and time < tSessEnd
+    orDone := not na(orHigh) and not na(orLow)
+
+// === Horizontal OR lines using plot (more reliable than line objects) ===
+showSeg = time >= tEndEx and time <= tSessEnd and orDone
+orHighSeg = showSeg ? orHigh : na
+orLowSeg  = showSeg ? orLow  : na
+
+plot(orHighSeg, title="OR High", color=hiColor, linewidth=lineW)
+plot(orLowSeg,  title="OR Low",  color=loColor, linewidth=lineW)
+
+// (Debug block removed to avoid string parsing issues in some editors)
